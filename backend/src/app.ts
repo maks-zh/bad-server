@@ -14,7 +14,8 @@ import routes from './routes'
 const { PORT = 3000 } = process.env
 const app = express()
 const allowedOrigins = (
-    process.env.ORIGIN_ALLOW || 'http://localhost,http://127.0.0.1'
+    process.env.ORIGIN_ALLOW ||
+    'http://localhost:5173,http://localhost,http://127.0.0.1'
 )
     .split(',')
     .map((origin) => origin.trim())
@@ -39,7 +40,14 @@ app.disable('x-powered-by')
 app.use(cookieParser())
 app.use(rateLimit())
 app.use(cors(corsOptions))
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
+    const requestOrigin = req.headers.origin
+    const responseOrigin =
+        typeof requestOrigin === 'string' && allowedOrigins.includes(requestOrigin)
+            ? requestOrigin
+            : allowedOrigins[0]
+
+    res.header('Access-Control-Allow-Origin', responseOrigin)
     res.header('Access-Control-Allow-Methods', allowedMethods.join(', '))
     next()
 })

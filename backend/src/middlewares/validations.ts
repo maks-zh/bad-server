@@ -31,7 +31,7 @@ const objectIdSchema = Joi.string()
 
 const paginationSchema = {
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).max(MAX_PAGE_SIZE).default(10),
+    limit: Joi.number().integer().min(1).default(10),
 }
 
 const searchSchema = Joi.string().trim().max(100)
