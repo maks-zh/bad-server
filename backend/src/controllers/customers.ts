@@ -8,6 +8,10 @@ import NotFoundError from '../errors/not-found-error'
 import Order from '../models/order'
 import User, { IUser } from '../models/user'
 
+function normalizeSearchText(value: string) {
+    return value.replace(/[^\p{L}\p{N}\s@.+_-]/gu, '').trim()
+}
+
 export const getCustomers = async (
     req: Request,
     res: Response,
@@ -94,25 +98,32 @@ export const getCustomers = async (
         }
 
         if (typeof search === 'string' && search.trim()) {
-            const searchRegex = new RegExp(escapeRegExp(search.trim()), 'i')
-            const orders = await Order.find(
-                {
-                    $or: [
-                        { deliveryAddress: searchRegex },
-                        { comment: searchRegex },
-                    ],
-                },
-                '_id'
-            )
+            const normalizedSearch = normalizeSearchText(search)
 
-            const orderIds = orders.map((order) => order._id)
+            if (normalizedSearch) {
+                const searchRegex = new RegExp(
+                    escapeRegExp(normalizedSearch),
+                    'i'
+                )
+                const orders = await Order.find(
+                    {
+                        $or: [
+                            { deliveryAddress: searchRegex },
+                            { comment: searchRegex },
+                        ],
+                    },
+                    '_id'
+                )
 
-            filters.$or = [
-                { name: searchRegex },
-                { email: searchRegex },
-                { phone: searchRegex },
-                { lastOrder: { $in: orderIds } },
-            ]
+                const orderIds = orders.map((order) => order._id)
+
+                filters.$or = [
+                    { name: searchRegex },
+                    { email: searchRegex },
+                    { phone: searchRegex },
+                    { lastOrder: { $in: orderIds } },
+                ]
+            }
         }
 
         const sort: Record<string, 1 | -1> = {
