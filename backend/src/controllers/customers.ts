@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express'
-import { Error as MongooseError, FilterQuery } from 'mongoose'
+import { Error as MongooseError, FilterQuery, trusted } from 'mongoose'
 import { normalizePagination } from '../utils/pagination'
 import escapeRegExp from '../utils/escapeRegExp'
 import BadRequestError from '../errors/bad-request-error'
@@ -38,63 +38,63 @@ export const getCustomers = async (
         const filters: FilterQuery<Partial<IUser>> = {}
 
         if (registrationDateFrom) {
-            filters.createdAt = {
+            filters.createdAt = trusted({
                 ...filters.createdAt,
                 $gte: new Date(registrationDateFrom as string | Date),
-            }
+            })
         }
 
         if (registrationDateTo) {
             const endOfDay = new Date(registrationDateTo as string | Date)
             endOfDay.setHours(23, 59, 59, 999)
-            filters.createdAt = {
+            filters.createdAt = trusted({
                 ...filters.createdAt,
                 $lte: endOfDay,
-            }
+            })
         }
 
         if (lastOrderDateFrom) {
-            filters.lastOrderDate = {
+            filters.lastOrderDate = trusted({
                 ...filters.lastOrderDate,
                 $gte: new Date(lastOrderDateFrom as string | Date),
-            }
+            })
         }
 
         if (lastOrderDateTo) {
             const endOfDay = new Date(lastOrderDateTo as string | Date)
             endOfDay.setHours(23, 59, 59, 999)
-            filters.lastOrderDate = {
+            filters.lastOrderDate = trusted({
                 ...filters.lastOrderDate,
                 $lte: endOfDay,
-            }
+            })
         }
 
         if (typeof totalAmountFrom === 'number') {
-            filters.totalAmount = {
+            filters.totalAmount = trusted({
                 ...filters.totalAmount,
                 $gte: totalAmountFrom,
-            }
+            })
         }
 
         if (typeof totalAmountTo === 'number') {
-            filters.totalAmount = {
+            filters.totalAmount = trusted({
                 ...filters.totalAmount,
                 $lte: totalAmountTo,
-            }
+            })
         }
 
         if (typeof orderCountFrom === 'number') {
-            filters.orderCount = {
+            filters.orderCount = trusted({
                 ...filters.orderCount,
                 $gte: orderCountFrom,
-            }
+            })
         }
 
         if (typeof orderCountTo === 'number') {
-            filters.orderCount = {
+            filters.orderCount = trusted({
                 ...filters.orderCount,
                 $lte: orderCountTo,
-            }
+            })
         }
 
         if (typeof search === 'string' && search.trim()) {
@@ -106,12 +106,12 @@ export const getCustomers = async (
                     'i'
                 )
                 const orders = await Order.find(
-                    {
+                    trusted({
                         $or: [
                             { deliveryAddress: searchRegex },
                             { comment: searchRegex },
                         ],
-                    },
+                    }),
                     '_id'
                 )
 
@@ -121,7 +121,7 @@ export const getCustomers = async (
                     { name: searchRegex },
                     { email: searchRegex },
                     { phone: searchRegex },
-                    { lastOrder: { $in: orderIds } },
+                    { lastOrder: trusted({ $in: orderIds }) },
                 ]
             }
         }
