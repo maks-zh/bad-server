@@ -30,8 +30,16 @@ export type ApiListResponse<Type> = {
     items: Type[]
 }
 
+type CsrfTokenResponse = {
+    csrfToken: string
+}
+
+const methodsProtectedByCsrf = new Set(['DELETE', 'PATCH', 'POST', 'PUT'])
+const csrfProtectedEndpoints = new Set(['/auth/logout', '/auth/token'])
+
 class Api {
     private readonly baseUrl: string
+    private csrfToken: string | null = null
     protected options: RequestInit
 
     constructor(baseUrl: string, options: RequestInit = {}) {
@@ -53,12 +61,64 @@ class Api {
                   )
     }
 
+    private async fetchCsrfToken(forceRefresh = false) {
+        if (this.csrfToken && !forceRefresh) {
+            return this.csrfToken
+        }
+
+        const response = await fetch(`${this.baseUrl}/auth/csrf-token`, {
+            method: 'GET',
+            credentials: 'include',
+        })
+        const data = await this.handleResponse<CsrfTokenResponse>(response)
+
+        this.csrfToken = data.csrfToken
+
+        return this.csrfToken
+    }
+
+    private isCsrfProtectionRequired(endpoint: string, method = 'GET') {
+        return (
+            methodsProtectedByCsrf.has(method.toUpperCase()) ||
+            csrfProtectedEndpoints.has(endpoint)
+        )
+    }
+
+    private async prepareRequestOptions(
+        endpoint: string,
+        options: RequestInit
+    ): Promise<RequestInit> {
+        const method = (options.method || 'GET').toUpperCase()
+        const preparedHeaders = new Headers(
+            (this.options.headers as HeadersInit | undefined) || {}
+        )
+        const currentHeaders = new Headers(options.headers || {})
+
+        currentHeaders.forEach((value, key) => {
+            preparedHeaders.set(key, value)
+        })
+
+        if (this.isCsrfProtectionRequired(endpoint, method)) {
+            const csrfToken = await this.fetchCsrfToken()
+            preparedHeaders.set('X-CSRF-Token', csrfToken)
+        }
+
+        return {
+            ...this.options,
+            ...options,
+            credentials: 'include',
+            headers: preparedHeaders,
+        }
+    }
+
     protected async request<T>(endpoint: string, options: RequestInit) {
         try {
-            const res = await fetch(`${this.baseUrl}${endpoint}`, {
-                ...this.options,
-                ...options,
-            })
+            const preparedOptions = await this.prepareRequestOptions(
+                endpoint,
+                options
+            )
+            const res = await fetch(`${this.baseUrl}${endpoint}`, preparedOptions)
+
             return await this.handleResponse<T>(res)
         } catch (error) {
             return Promise.reject(error)
@@ -68,7 +128,6 @@ class Api {
     private refreshToken = () => {
         return this.request<UserResponseToken>('/auth/token', {
             method: 'GET',
-            credentials: 'include',
         })
     }
 
@@ -87,7 +146,7 @@ class Api {
             return await this.request<T>(endpoint, {
                 ...options,
                 headers: {
-                    ...options.headers,
+                    ...(options.headers || {}),
                     Authorization: `Bearer ${getCookie('accessToken')}`,
                 },
             })
@@ -233,7 +292,6 @@ export class WebLarekAPI extends Api implements IWebLarekAPI {
             headers: {
                 'Content-Type': 'application/json',
             },
-            credentials: 'include',
         })
     }
 
@@ -244,7 +302,6 @@ export class WebLarekAPI extends Api implements IWebLarekAPI {
             headers: {
                 'Content-Type': 'application/json',
             },
-            credentials: 'include',
         })
     }
 
@@ -294,12 +351,10 @@ export class WebLarekAPI extends Api implements IWebLarekAPI {
     logoutUser = () => {
         return this.request<ServerResponse<unknown>>('/auth/logout', {
             method: 'GET',
-            credentials: 'include',
         })
     }
 
     createProduct = (data: Omit<IProduct, '_id'>) => {
-        console.log(data)
         return this.requestWithRefresh<IProduct>('/product', {
             method: 'POST',
             body: JSON.stringify(data),

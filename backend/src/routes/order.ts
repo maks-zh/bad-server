@@ -9,6 +9,7 @@ import {
     updateOrder,
 } from '../controllers/order'
 import auth, { roleGuardMiddleware } from '../middlewares/auth'
+import { validateCsrfToken } from '../middlewares/csrf'
 import {
     validateCurrentUserOrdersQuery,
     validateIdParam,
@@ -21,7 +22,7 @@ import { Role } from '../models/user'
 
 const orderRouter = Router()
 
-orderRouter.post('/', auth, validateOrderBody, createOrder)
+orderRouter.post('/', auth, validateCsrfToken, validateOrderBody, createOrder)
 orderRouter.get(
     '/all',
     auth,
@@ -52,6 +53,7 @@ orderRouter.patch(
     '/:orderNumber',
     auth,
     roleGuardMiddleware(Role.Admin),
+    validateCsrfToken,
     validateOrderNumberParam,
     validateOrderUpdateBody,
     updateOrder
@@ -61,6 +63,7 @@ orderRouter.delete(
     '/:id',
     auth,
     roleGuardMiddleware(Role.Admin),
+    validateCsrfToken,
     validateIdParam,
     deleteOrder
 )

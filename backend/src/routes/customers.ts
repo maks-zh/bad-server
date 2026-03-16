@@ -6,6 +6,7 @@ import {
     updateCustomer,
 } from '../controllers/customers'
 import auth, { roleGuardMiddleware } from '../middlewares/auth'
+import { validateCsrfToken } from '../middlewares/csrf'
 import {
     validateCustomerUpdateBody,
     validateCustomersQuery,
@@ -33,6 +34,7 @@ customerRouter.patch(
     '/:id',
     auth,
     roleGuardMiddleware(Role.Admin),
+    validateCsrfToken,
     validateIdParam,
     validateCustomerUpdateBody,
     updateCustomer
@@ -41,6 +43,7 @@ customerRouter.delete(
     '/:id',
     auth,
     roleGuardMiddleware(Role.Admin),
+    validateCsrfToken,
     validateIdParam,
     deleteCustomer
 )
