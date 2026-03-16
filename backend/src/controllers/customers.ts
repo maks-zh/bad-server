@@ -1,12 +1,13 @@
 import { NextFunction, Request, Response } from 'express'
-import { FilterQuery } from 'mongoose'
+import { Error as MongooseError, FilterQuery } from 'mongoose'
+import { normalizePagination } from '../utils/pagination'
+import escapeRegExp from '../utils/escapeRegExp'
+import BadRequestError from '../errors/bad-request-error'
+import ConflictError from '../errors/conflict-error'
 import NotFoundError from '../errors/not-found-error'
 import Order from '../models/order'
 import User, { IUser } from '../models/user'
 
-// TODO: Добавить guard admin
-// eslint-disable-next-line max-len
-// Get GET /customers?page=2&limit=5&sort=totalAmount&order=desc&registrationDateFrom=2023-01-01&registrationDateTo=2023-12-31&lastOrderDateFrom=2023-01-01&lastOrderDateTo=2023-12-31&totalAmountFrom=100&totalAmountTo=1000&orderCountFrom=1&orderCountTo=10
 export const getCustomers = async (
     req: Request,
     res: Response,
@@ -14,8 +15,8 @@ export const getCustomers = async (
 ) => {
     try {
         const {
-            page = 1,
-            limit = 10,
+            page,
+            limit,
             sortField = 'createdAt',
             sortOrder = 'desc',
             registrationDateFrom,
@@ -29,17 +30,18 @@ export const getCustomers = async (
             search,
         } = req.query
 
+        const pagination = normalizePagination(page, limit)
         const filters: FilterQuery<Partial<IUser>> = {}
 
         if (registrationDateFrom) {
             filters.createdAt = {
                 ...filters.createdAt,
-                $gte: new Date(registrationDateFrom as string),
+                $gte: new Date(registrationDateFrom as string | Date),
             }
         }
 
         if (registrationDateTo) {
-            const endOfDay = new Date(registrationDateTo as string)
+            const endOfDay = new Date(registrationDateTo as string | Date)
             endOfDay.setHours(23, 59, 59, 999)
             filters.createdAt = {
                 ...filters.createdAt,
@@ -50,12 +52,12 @@ export const getCustomers = async (
         if (lastOrderDateFrom) {
             filters.lastOrderDate = {
                 ...filters.lastOrderDate,
-                $gte: new Date(lastOrderDateFrom as string),
+                $gte: new Date(lastOrderDateFrom as string | Date),
             }
         }
 
         if (lastOrderDateTo) {
-            const endOfDay = new Date(lastOrderDateTo as string)
+            const endOfDay = new Date(lastOrderDateTo as string | Date)
             endOfDay.setHours(23, 59, 59, 999)
             filters.lastOrderDate = {
                 ...filters.lastOrderDate,
@@ -63,39 +65,42 @@ export const getCustomers = async (
             }
         }
 
-        if (totalAmountFrom) {
+        if (typeof totalAmountFrom === 'number') {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $gte: Number(totalAmountFrom),
+                $gte: totalAmountFrom,
             }
         }
 
-        if (totalAmountTo) {
+        if (typeof totalAmountTo === 'number') {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $lte: Number(totalAmountTo),
+                $lte: totalAmountTo,
             }
         }
 
-        if (orderCountFrom) {
+        if (typeof orderCountFrom === 'number') {
             filters.orderCount = {
                 ...filters.orderCount,
-                $gte: Number(orderCountFrom),
+                $gte: orderCountFrom,
             }
         }
 
-        if (orderCountTo) {
+        if (typeof orderCountTo === 'number') {
             filters.orderCount = {
                 ...filters.orderCount,
-                $lte: Number(orderCountTo),
+                $lte: orderCountTo,
             }
         }
 
-        if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+        if (typeof search === 'string' && search.trim()) {
+            const searchRegex = new RegExp(escapeRegExp(search.trim()), 'i')
             const orders = await Order.find(
                 {
-                    $or: [{ deliveryAddress: searchRegex }],
+                    $or: [
+                        { deliveryAddress: searchRegex },
+                        { comment: searchRegex },
+                    ],
                 },
                 '_id'
             )
@@ -104,20 +109,20 @@ export const getCustomers = async (
 
             filters.$or = [
                 { name: searchRegex },
+                { email: searchRegex },
+                { phone: searchRegex },
                 { lastOrder: { $in: orderIds } },
             ]
         }
 
-        const sort: { [key: string]: any } = {}
-
-        if (sortField && sortOrder) {
-            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
+        const sort: Record<string, 1 | -1> = {
+            [sortField as string]: sortOrder === 'desc' ? -1 : 1,
         }
 
         const options = {
             sort,
-            skip: (Number(page) - 1) * Number(limit),
-            limit: Number(limit),
+            skip: pagination.skip,
+            limit: pagination.limit,
         }
 
         const users = await User.find(filters, null, options).populate([
@@ -137,53 +142,64 @@ export const getCustomers = async (
         ])
 
         const totalUsers = await User.countDocuments(filters)
-        const totalPages = Math.ceil(totalUsers / Number(limit))
+        const totalPages = Math.ceil(totalUsers / pagination.limit)
 
-        res.status(200).json({
+        return res.status(200).json({
             customers: users,
             pagination: {
                 totalUsers,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: pagination.page,
+                pageSize: pagination.limit,
             },
         })
     } catch (error) {
-        next(error)
+        return next(error)
     }
 }
 
-// TODO: Добавить guard admin
-// Get /customers/:id
 export const getCustomerById = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
-        const user = await User.findById(req.params.id).populate([
-            'orders',
-            'lastOrder',
-        ])
-        res.status(200).json(user)
+        const user = await User.findById(req.params.id)
+            .populate(['orders', 'lastOrder'])
+            .orFail(
+                () =>
+                    new NotFoundError(
+                        'Пользователь по заданному id отсутствует в базе'
+                    )
+            )
+
+        return res.status(200).json(user)
     } catch (error) {
-        next(error)
+        if (error instanceof MongooseError.CastError) {
+            return next(new BadRequestError('Передан не валидный ID пользователя'))
+        }
+
+        return next(error)
     }
 }
 
-// TODO: Добавить guard admin
-// Patch /customers/:id
 export const updateCustomer = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
+        const { name, email, phone } = req.body
         const updatedUser = await User.findByIdAndUpdate(
             req.params.id,
-            req.body,
+            {
+                name,
+                email,
+                phone,
+            },
             {
                 new: true,
+                runValidators: true,
             }
         )
             .orFail(
@@ -193,14 +209,27 @@ export const updateCustomer = async (
                     )
             )
             .populate(['orders', 'lastOrder'])
-        res.status(200).json(updatedUser)
+
+        return res.status(200).json(updatedUser)
     } catch (error) {
-        next(error)
+        if (error instanceof MongooseError.ValidationError) {
+            return next(new BadRequestError(error.message))
+        }
+
+        if (error instanceof MongooseError.CastError) {
+            return next(new BadRequestError('Передан не валидный ID пользователя'))
+        }
+
+        if (error instanceof Error && error.message.includes('E11000')) {
+            return next(
+                new ConflictError('Пользователь с таким email уже существует')
+            )
+        }
+
+        return next(error)
     }
 }
 
-// TODO: Добавить guard admin
-// Delete /customers/:id
 export const deleteCustomer = async (
     req: Request,
     res: Response,
@@ -213,8 +242,13 @@ export const deleteCustomer = async (
                     'Пользователь по заданному id отсутствует в базе'
                 )
         )
-        res.status(200).json(deletedUser)
+
+        return res.status(200).json(deletedUser)
     } catch (error) {
-        next(error)
+        if (error instanceof MongooseError.CastError) {
+            return next(new BadRequestError('Передан не валидный ID пользователя'))
+        }
+
+        return next(error)
     }
 }
