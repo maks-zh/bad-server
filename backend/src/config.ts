@@ -24,7 +24,7 @@ export const REFRESH_TOKEN = {
 }
 export const CSRF_TOKEN = {
     cookie: {
-        name: 'csrfToken',
+        name: '_csrf',
         options: {
             httpOnly: true,
             sameSite: 'strict',

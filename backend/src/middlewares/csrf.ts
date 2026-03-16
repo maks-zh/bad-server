@@ -17,12 +17,18 @@ function safeCompare(left: string, right: string) {
 function getRequestCsrfToken(req: Request) {
     const body = req.body as Record<string, unknown> | undefined
     const query = req.query as Record<string, unknown> | undefined
+    const bodyCsrfToken = Reflect.get(body || {}, '_csrf')
+    const queryCsrfToken = Reflect.get(query || {}, '_csrf')
 
     const possibleToken =
         req.header('X-CSRF-Token') ||
         req.header('X-XSRF-Token') ||
+        req.header('csrf-token') ||
+        req.header('xsrf-token') ||
         body?.csrfToken ||
-        query?.csrfToken
+        bodyCsrfToken ||
+        query?.csrfToken ||
+        queryCsrfToken
 
     return typeof possibleToken === 'string' ? possibleToken : ''
 }
